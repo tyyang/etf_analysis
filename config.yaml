@@ -1,0 +1,138 @@
+# ============================================================
+# 009805 新光美國電力基建 ETF 監控系統設定
+# ============================================================
+
+# ETF 基本資訊
+etf:
+  ticker: "009805.TW"
+  name: "新光美國電力基建"
+  yahoo_symbol: "009805.TW"
+
+# ============================================================
+# 追蹤指標權重與閾值
+# ============================================================
+
+# 指標一：美國 10 年期公債殖利率
+treasury:
+  symbol: "^TNX"
+  name: "US 10Y Treasury Yield"
+  weight: 35           # 對公用事業估值影響權重
+  thresholds:
+    bullish: 4.30      # 低於此值 → 強烈利多
+    neutral_low: 4.30
+    neutral_high: 4.60
+    bearish: 4.80      # 高於此值 → 強烈利空
+  alert_change_1d: 0.10  # 單日變動超過 10bp 觸發警報
+  alert_change_1w: 0.25  # 單週變動超過 25bp 觸發警報
+
+# 指標二：大型科技股資本支出（代理變數）
+big_tech:
+  symbols:
+    - ticker: "GOOGL"
+      name: "Alphabet/Google"
+    - ticker: "META"
+      name: "Meta"
+    - ticker: "MSFT"
+      name: "Microsoft"
+    - ticker: "AMZN"
+      name: "Amazon"
+  weight: 45           # AI capex 是最核心的驅動力
+  thresholds:
+    # 整體指數月變動
+    bullish: 5.0       # 月漲 >5% → capex 預期強勁
+    bearish: -10.0     # 月跌 >10% → capex 疑慮
+
+# 指標三：台幣兌美元匯率
+forex:
+  symbol: "USDTWD=X"
+  name: "USD/TWD"
+  weight: 20           # 匯率風險權重
+  thresholds:
+    bullish: 32.0      # 台幣貶值 → 對 ETF 台幣計價有利
+    neutral_low: 30.5
+    neutral_high: 32.0
+    bearish: 30.0      # 台幣強勢 → 匯損壓力大
+  alert_change_1d: 0.30  # 單日波動 >3 角
+  alert_change_1w: 0.80  # 單週波動 >8 角
+
+# ETF 前十大持股（用於個股追蹤）
+holdings:
+  - symbol: "GEV"
+    name: "GE Vernova"
+    weight: 13.23
+    sector: "工業"
+  - symbol: "VRT"
+    name: "Vertiv"
+    weight: 11.04
+    sector: "工業"
+  - symbol: "ETN"
+    name: "Eaton"
+    weight: 8.64
+    sector: "工業"
+  - symbol: "PWR"
+    name: "Quanta Services"
+    weight: 7.38
+    sector: "工業"
+  - symbol: "HUBB"
+    name: "Hubbell"
+    weight: 5.22
+    sector: "工業"
+  - symbol: "BE"
+    name: "Bloom Energy"
+    weight: 4.56
+    sector: "工業"
+  - symbol: "NEE"
+    name: "NextEra Energy"
+    weight: 3.61
+    sector: "公用事業"
+  - symbol: "SO"
+    name: "Southern Co"
+    weight: 3.06
+    sector: "公用事業"
+  - symbol: "DUK"
+    name: "Duke Energy"
+    weight: 2.87
+    sector: "公用事業"
+  - symbol: "NXT"
+    name: "Nextracker"
+    weight: 2.64
+    sector: "工業"
+
+# ETF 技術面閾值
+technical:
+  rsi_oversold: 30
+  rsi_overbought: 70
+  ma_short: 5      # 5 日均線
+  ma_medium: 20     # 月線
+  ma_long: 60       # 季線
+
+# 倉位策略參數
+position:
+  initial_entry:    # 初始建倉區
+    low: 15.5
+    high: 16.5
+  add_position_1:   # 第一加碼區
+    low: 14.5
+    high: 15.5
+  add_position_2:   # 第二加碼區（恐慌）
+    low: 13.0
+    high: 14.5
+  reduce_alert: 17.3  # 接近 52w 高點，考慮減碼
+
+# 關鍵事件日曆
+events:
+  - name: "FOMC 利率決議"
+    date: "2026-06-18"
+    impact: "high"
+  - name: "Q2 大型科技股財報週"
+    date: "2026-07-20"
+    impact: "critical"
+  - name: "FOMC 利率決議"
+    date: "2026-07-30"
+    impact: "high"
+
+# 報告輸出設定
+reports:
+  data_dir: "data"
+  output_dir: "reports"
+  keep_days: 90     # 保留 90 天歷史數據
