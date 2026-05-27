@@ -8,14 +8,10 @@ import statistics
 import sys
 from datetime import datetime, timezone
 
+from config import get_config
 from shared import DATA_DIR, REPORT_DIR, format_change, safe_json_load
 
-try:
-    from config import get_config
-    config = get_config()
-except ImportError:
-    from shared import load_config
-    config = load_config()
+config = get_config()
 
 
 def load_week_data(days: int = 7) -> list[dict]:

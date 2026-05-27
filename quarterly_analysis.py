@@ -9,13 +9,10 @@ from datetime import datetime, timezone, timedelta
 from pathlib import Path
 from collections import defaultdict
 
-from shared import DATA_DIR, REPORT_DIR, format_change, load_config, safe_json_load
+from config import get_config
+from shared import DATA_DIR, REPORT_DIR, format_change, safe_json_load
 
-try:
-    from config import get_config
-    config = get_config()
-except ImportError:
-    config = load_config()
+config = get_config()
 
 
 def load_quarter_data() -> list[Path]:

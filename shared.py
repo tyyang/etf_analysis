@@ -11,8 +11,6 @@ import urllib.request
 from datetime import datetime, timezone
 from pathlib import Path
 
-import yaml
-
 # ---- 路徑常數 ----
 ROOT = Path(__file__).resolve().parent
 DATA_DIR = ROOT / "data"
@@ -24,20 +22,6 @@ REPORT_DIR.mkdir(exist_ok=True)
 HEADERS = {"User-Agent": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36"}
 TIMEOUT = 15
 RATE_LIMIT_SLEEP = 1.5
-
-# ---- 設定快取 ----
-_config = None
-
-
-def load_config() -> dict:
-    """載入 config.yaml（帶快取）"""
-    global _config
-    if _config is None:
-        config_path = ROOT / "config.yaml"
-        with open(config_path, "r", encoding="utf-8") as f:
-            _config = yaml.safe_load(f)
-    return _config
-
 
 def safe_json_load(filepath: Path) -> dict | None:
     """安全載入 JSON 檔案，失敗時回傳 None 並記錄錯誤"""

@@ -4,15 +4,15 @@
 抓取三大指標 + ETF 價格 + 前十大持股 → 存入 JSON 供後續分析
 """
 
+import concurrent.futures
 import json
-import time
+import sys
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from config import get_config
 from shared import (
     DATA_DIR,
-    HEADERS,
     yahoo_chart,
 )
 
@@ -67,9 +67,40 @@ def fetch_all():
         "indicators": {},
     }
 
-    # ---- ETF 本身 ----
-    print("[1/5] 009805 ETF...")
-    etf = yahoo_chart("009805.TW", "1d", "1mo")
+    # ---- 收集所有需要抓取的 symbol ----
+    tasks = []
+    tasks.append(("etf", "009805.TW", "1d", "1mo"))
+    tasks.append(("tnx", "^TNX", "1d", "1mo"))
+    tasks.append(("forex", "USDTWD=X", "1d", "1mo"))
+
+    big_tech_cfg = cfg.get("big_tech", {})
+    big_tech_symbols = [s["ticker"] for s in big_tech_cfg.get("symbols", [])]
+    for sym in big_tech_symbols:
+        tasks.append(("big_tech", sym, "1d", "1mo"))
+
+    holdings_cfg = cfg.get("holdings", [])
+    for h in holdings_cfg:
+        tasks.append(("holding", h["symbol"], "1d", "1mo"))
+
+    # ---- 並行抓取 ----
+    print(f"[FETCH] 開始並行抓取 {len(tasks)} 個 symbol (max_workers=4)...")
+    results_map = {}
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4) as executor:
+        futures = {}
+        for category, sym, interval, range_ in tasks:
+            future = executor.submit(yahoo_chart, sym, interval, range_)
+            futures[future] = (category, sym)
+        for future in concurrent.futures.as_completed(futures):
+            category, sym = futures[future]
+            try:
+                results_map[sym] = future.result()
+            except Exception as e:
+                print(f"[ERROR] {sym}: {e}", file=sys.stderr)
+                results_map[sym] = None
+
+    # ---- 組合結果 ----
+    # ETF
+    etf = results_map.get("009805.TW")
     if etf and etf.get("data"):
         result["etf"] = {
             "name": "新光美國電力基建",
@@ -86,11 +117,9 @@ def fetch_all():
                 for d in etf.get("data", [])[-20:]
             ],
         }
-    time.sleep(0.5)
 
-    # ---- 指標一：10Y 公債殖利率 ----
-    print("[2/5] US 10Y Treasury...")
-    tnx = yahoo_chart("^TNX", "1d", "1mo")
+    # 10Y
+    tnx = results_map.get("^TNX")
     if tnx and tnx.get("data"):
         result["indicators"]["treasury_10y"] = {
             "name": "US 10Y Treasury Yield",
@@ -103,15 +132,11 @@ def fetch_all():
                 for d in tnx.get("data", [])[-10:]
             ],
         }
-    time.sleep(0.5)
 
-    # ---- 指標二：大型科技股（從 config 載入） ----
-    print("[3/5] Big Tech...")
-    big_tech_cfg = cfg.get("big_tech", {})
-    big_tech_symbols = [s["ticker"] for s in big_tech_cfg.get("symbols", [])]
+    # Big Tech
     big_tech = {}
     for sym in big_tech_symbols:
-        data = yahoo_chart(sym, "1d", "1mo")
+        data = results_map.get(sym)
         if data and data.get("data"):
             changes = compute_changes(data.get("data", []))
             big_tech[sym] = {
@@ -119,8 +144,6 @@ def fetch_all():
                 "52w_high": data.get("fiftyTwoWeekHigh"),
                 "changes": changes,
             }
-        time.sleep(0.5)
-    # Composite index (equal weight)
     if big_tech:
         avg_1w = sum(v["changes"]["1w"] for v in big_tech.values()) / len(big_tech)
         avg_1m = sum(v["changes"]["1m"] for v in big_tech.values()) / len(big_tech)
@@ -131,9 +154,8 @@ def fetch_all():
             "composite_1m": round(avg_1m, 2),
         }
 
-    # ---- 指標三：匯率 ----
-    print("[4/5] USD/TWD...")
-    forex = yahoo_chart("USDTWD=X", "1d", "1mo")
+    # Forex
+    forex = results_map.get("USDTWD=X")
     if forex and forex.get("data"):
         result["indicators"]["forex"] = {
             "name": "USD/TWD",
@@ -148,17 +170,14 @@ def fetch_all():
                 for d in forex.get("data", [])[-10:]
             ],
         }
-    time.sleep(0.5)
 
-    # ---- 前十大持股（從 config 載入） ----
-    print("[5/5] Top 10 Holdings...")
-    holdings_cfg = cfg.get("holdings", [])
+    # Holdings
     holdings_data = []
     for h in holdings_cfg:
         sym = h["symbol"]
         name = h["name"]
         weight = h["weight"]
-        data = yahoo_chart(sym, "1d", "1mo")
+        data = results_map.get(sym)
         if data and data.get("data"):
             changes = compute_changes(data.get("data", []))
             holdings_data.append({
@@ -168,9 +187,7 @@ def fetch_all():
                 "price": data.get("regularMarketPrice"),
                 "changes": changes,
             })
-        time.sleep(0.5)
 
-    # Weighted contribution to ETF
     total_1w = sum(h["weight"] * h["changes"]["1w"] for h in holdings_data) / 100
     total_1m = sum(h["weight"] * h["changes"]["1m"] for h in holdings_data) / 100
 
@@ -193,7 +210,7 @@ def fetch_all():
             json.dump(result, f, ensure_ascii=False, indent=2)
         print(f"✅ 資料已儲存至 {daily_file}")
 
-    # 附加到歷史彙總檔：先檢查今日是否已存在
+    # 附加到歷史彙總檔：只讀最後一行檢查今日是否已存在（append-only）
     summary = {
         "date": date_str,
         "etf_price": result.get("etf", {}).get("price"),
@@ -207,15 +224,21 @@ def fetch_all():
     history_file = DATA_DIR / "history.jsonl"
     already_exists = False
     if history_file.exists():
-        with open(history_file, "r", encoding="utf-8") as f:
-            for line in f:
+        with open(history_file, "rb") as f:
+            try:
+                f.seek(-2, 2)
+                while f.read(1) != b"\n":
+                    f.seek(-2, 1)
+            except OSError:
+                f.seek(0)
+            last_line = f.readline().decode("utf-8").strip()
+            if last_line:
                 try:
-                    entry = json.loads(line.strip())
+                    entry = json.loads(last_line)
                     if entry.get("date") == date_str:
                         already_exists = True
-                        break
                 except json.JSONDecodeError:
-                    continue
+                    pass
     if already_exists:
         print(f"[SKIP] 今日記錄已存在於 {history_file}，不重複追加")
     else:
@@ -259,7 +282,7 @@ def compute_signals(result: dict, cfg: dict) -> dict:
         bt_bearish = bt_th.get("bearish", -10.0)
         if c1m > bt_bullish:
             signals["big_tech"] = f"🟢 強勁（月漲 >{bt_bullish}%）"
-        elif c1m > 0:
+        elif c1m >= 0:
             signals["big_tech"] = "🟡 穩健（月漲 0-5%）"
         elif c1m > bt_bearish:
             signals["big_tech"] = f"🟠 轉弱（月跌 0-{abs(bt_bearish)}%）"
